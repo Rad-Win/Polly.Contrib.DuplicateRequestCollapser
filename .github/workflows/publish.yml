@@ -1,4 +1,7 @@
 name: CI and Publish
+permissions:
+  contents: read
+  packages: write
 
 on:
   push:
