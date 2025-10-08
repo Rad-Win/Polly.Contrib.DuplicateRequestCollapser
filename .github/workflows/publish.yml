@@ -1,0 +1,114 @@
+name: CI and Publish
+permissions:
+  contents: read
+  packages: write
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch: {}
+
+jobs:
+  build_and_test:
+    name: Build and Test
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDKs
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            6.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test --configuration Release --no-build --verbosity normal
+
+  publish:
+    name: Pack and Publish to GitHub Packages
+    needs: build_and_test
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDKs
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            6.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build (Release)
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Compute unique package version
+        id: compute_version
+        shell: pwsh
+        run: |
+          $csproj = Get-ChildItem -Recurse -Filter *.csproj | Where-Object { $_.Name -notlike '*.Specs.csproj' } | Select-Object -First 1
+          if (-not $csproj) { throw 'No csproj found to compute version.' }
+          [xml]$xml = Get-Content $csproj.FullName
+          $pkgVersion = ($xml.Project.PropertyGroup | ForEach-Object { $_.PackageVersion } | Where-Object { $_ } | Select-Object -First 1)
+          if (-not $pkgVersion) {
+            $pkgVersion = ($xml.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1)
+          }
+          if (-not $pkgVersion) { throw 'No Version or PackageVersion found in csproj.' }
+          $suffix = "ci$env:GITHUB_RUN_NUMBER"
+          if ($pkgVersion -match '-') {
+            $fullVersion = "$pkgVersion.$suffix"
+          } else {
+            $fullVersion = "$pkgVersion-$suffix"
+          }
+          echo "PKG_VERSION=$fullVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          echo "Using package version: $fullVersion"
+
+      - name: Pack library
+        run: >-
+          dotnet pack .\Polly.Contrib.DuplicateRequestCollapser\Polly.Contrib.DuplicateRequestCollapser.csproj
+          --configuration Release
+          --include-symbols
+          /p:PackageVersion=${{ env.PKG_VERSION }}
+          --output .\out
+
+      - name: Publish to GitHub Packages
+        env:
+          NUGET_API_KEY: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+        run: >-
+          dotnet nuget push .\out\*.nupkg
+          --api-key $env:NUGET_API_KEY
+          --source "https://nuget.pkg.github.com/$env:OWNER/index.json"
+          --skip-duplicate
+
+      - name: Publish symbols to GitHub Packages (snupkg)
+        env:
+          NUGET_API_KEY: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+        run: >-
+          dotnet nuget push .\out\*.snupkg
+          --api-key $env:NUGET_API_KEY
+          --source "https://nuget.pkg.github.com/$env:OWNER/index.json"
+          --skip-duplicate
