@@ -89,7 +89,6 @@ jobs:
         run: >-
           dotnet pack .\Polly.Contrib.DuplicateRequestCollapser\Polly.Contrib.DuplicateRequestCollapser.csproj
           --configuration Release
-          --no-build
           --include-symbols
           /p:PackageVersion=${{ env.PKG_VERSION }}
           --output .\out
