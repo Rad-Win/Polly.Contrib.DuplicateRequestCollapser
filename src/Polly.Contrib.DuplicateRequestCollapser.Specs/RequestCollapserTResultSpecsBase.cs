@@ -55,7 +55,7 @@ namespace Polly.Contrib.DuplicateRequestCollapser.Specs
 
             Exception first = tasks.First().Exception.InnerException;
             // All executions should have been handed the same single result instance.
-            tasks.Select(x => x.Exception.InnerException).ShouldAllBeEquivalentTo(first);
+            tasks.Select(x => x.Exception.InnerException).Should().AllBeEquivalentTo(first);
 
             (actualInvocations, tasks) = Execute_parallel_delegates_through_policy_with_key_strategy(parallelism, useCollapser: true, sameKey: true);
             actualInvocations.Should().Be(2);
@@ -64,7 +64,7 @@ namespace Polly.Contrib.DuplicateRequestCollapser.Specs
             Exception second = tasks.First().Exception.InnerException;
             // The result of the second batch should not be the same as the first batch.
             second.Message.Should().NotBe(first.Message);
-            tasks.Select(x => x.Exception.InnerException).ShouldAllBeEquivalentTo(second);
+            tasks.Select(x => x.Exception.InnerException).Should().AllBeEquivalentTo(second);
         }
     }
 }
